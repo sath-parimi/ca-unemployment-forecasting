@@ -1,0 +1,395 @@
+---
+title: "CA Unemployment Forecasting"
+author: "Sathvika Parimi"
+date: "2025-07-23"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("dplyr")
+library("lubridate")
+library("MASS")
+library("MuMIn")
+library("forecast")
+source("plot.roots.R")
+data <- read.csv("/Users/sathvika20203/Downloads/Pstat 174/unemployment.csv", 
+                 header = TRUE)
+
+```
+
+```{r}
+data <- data[data$State.Area == "California", ]
+
+data <- data %>%
+  mutate(Total.Unemployment.in.State.Area = as.numeric(gsub("[^0-9]", "", Total.Unemployment.in.State.Area))) 
+
+#Subset training to till 2018, testing till 2019
+data_training <- data %>% 
+  filter(Year >= 2010 & Year <= 2018)
+
+data_testing <- data %>% 
+  filter(Year >= 2010 & Year <= 2019)
+
+#Make time series
+data_training_ts = ts(data_training$Total.Unemployment.in.State.Area, start = c(2010, 1), end = c(2018, 1), frequency = 12) 
+
+data_testing_ts = ts(data_testing$Total.Unemployment.in.State.Area, start = c(2010, 1), end = c(2019, 1), frequency = 12)
+
+#Plot time series
+plot(data_training_ts, xlab = "Year", ylab = "Unemployment", main = "Figure 1: Unemployment in California from 2010 to 2018", ylim = c(min(data_training_ts), max(data_training_ts)))
+```
+
+```{r}
+#Let's transform data to make it more normal
+
+#Box-Cox Transformation
+bcTransform <- boxcox(data_training_ts ~ as.numeric(1:length(data_training_ts)))
+bcTransform$x[which(bcTransform$y == max(bcTransform$y))]
+lambda = bcTransform$x[which(bcTransform$y == max(bcTransform$y))]
+data_ts.bc = (1/lambda)*(data_training_ts^lambda-1)
+plot(data_ts.bc, main = "Box-Cox Transformation of Unemployment")
+hist(data_ts.bc, col = "lightblue", xlab = "Year", ylab = "Unemployment", main = "Box-Cox Transformation Histogram")
+
+#Log Transformation
+data_ts.log <- log(data_training_ts)
+plot(data_ts.log, main = "Log Transformation of Unemployment")
+hist(data_ts.log, col="lightblue", xlab = "Year", ylab = "Unemployment", main = "Log Transformation Histogram")
+
+#Sqrt Transformation
+data_ts.sqrt <- sqrt(data_training_ts)
+plot(data_ts.sqrt, main = "SQRT Transformation of Unemployment")
+hist(data_ts.sqrt, col="lightblue", xlab = "Year", ylab = "Unemployment", main = "Figure 2: SQRT Transformation Histogram")
+
+#The Box-Cox command gives us lambda = 0.3838384. Lambda = 0 corresponds to a Log transformation, while lambda = 0.5 corresponds to a SQRT transformation. Since 0.5 is closer to 0.3838384 and is within the 95% confidence interval, we choose the SQRT transformation. This is also supported by a more symmetric looking histogram.
+```
+
+```{r}
+#Difference to get rid of trend (lag 1)
+diff_lag_1_data_ts.transformed = diff(data_ts.sqrt, 1)
+plot(diff_lag_1_data_ts.transformed, xlab = "Year", ylab = "Unemployment", main ="De-Trended Unemployment")
+abline(h = mean(diff_lag_1_data_ts.transformed),lty = 2)
+var(diff_lag_1_data_ts.transformed)
+
+#Difference to get rid of seasonality (lag 1 + lag 12)
+diff_lag_1_and_12_data_ts.transformed = diff(diff_lag_1_data_ts.transformed, 12)
+plot(diff_lag_1_and_12_data_ts.transformed, xlab = "Year", ylab = "Unemployment", main ="De-Trended and De-seasonalized Unemployment")
+abline(h = mean(diff_lag_1_and_12_data_ts.transformed),lty = 2)
+var(diff_lag_1_and_12_data_ts.transformed)
+
+#Differencing at lag 1 gives us a variance of 3.822456e-05, while differencing at lag 1 and lag 12 gives us a variance of 6.681259e-05. Since the former is a lower variance, we choose to de-trend only.
+```
+
+
+```{r}
+#De-Trended ACF and PACF
+
+#ACF
+acf(diff_lag_1_data_ts.transformed, xlim = c(0, 5), main = " Figure 3: ACF of Unemployment in California from 2010 to 2018", col = "orchid", xlab = "Lag")
+
+#PACF
+pacf(diff_lag_1_data_ts.transformed, xlim = c(0, 5), main = "Figure 4: PACF of Unemployment in California from 2010 to 2018", col = "orchid", xlab = "Lag")
+
+#ARIMA looks like the most appropriate model. p is most likely either 2 or 4 since there is a strong AR component, d is either 1 or 2 since we differenced at 1 to remove trend but might need to account for more differencing, and q is definitely 0 since there is no MA component (seasonality).
+```
+
+
+```{r}
+#ARIMA testing
+arima(data_ts.sqrt, order=c(2,1,0), method="ML")
+
+arima(data_ts.sqrt, order=c(4,1,0), method="ML")
+
+arima(data_ts.sqrt, order=c(2,2,0), method="ML")
+
+arima(data_ts.sqrt, order=c(4,2,0), method="ML")
+
+AICc(arima(data_ts.sqrt, order=c(2,1,0), method="ML"))
+
+AICc(arima(data_ts.sqrt, order=c(4,1,0), method="ML"))
+
+AICc(arima(data_ts.sqrt, order=c(2,2,0), method="ML"))
+
+AICc(arima(data_ts.sqrt, order=c(4,2,0), method="ML"))
+
+#The AICc values for the models are as follows: ARIMA(2,1,0) = 296.1931, ARIMA(4,1,0) = 214.1453, ARIMA(2,2,0) = 204.8874, and ARIMA(4,2,0) = 203.4565. Since ARIMA(4,2,0) has the lowest AICc value, we select this model.
+```
+
+```{r}
+#Let's check for stationarity since we know it is invertible (definition of AR)
+#ARIMA(2,1,0)
+coeff1 <- c(1, -1.6937, 0.7366)
+roots1 <- polyroot(coeff1)
+plot.roots(NULL, roots1, main = "Roots of AR Polynomial for ARIMA(2,1,0)")
+#roots are outside the unit circle, so our model is stationary
+
+#ARIMA(4,1,0)
+coeff2 <- c(1, -2.3097, 2.1781, -0.9204, 0.0640)
+roots2 <- polyroot(coeff2)
+plot.roots(NULL, roots2, main = "Roots of AR Polynomial for ARIMA(4,1,0)")
+#roots are outside the unit circle, so our model is stationary
+
+#ARIMA(2,2,0)
+coeff3 <- c(1, -1.2784, 0.7952)
+roots3 <- polyroot(coeff3)
+plot.roots(NULL, roots3, main = "Roots of AR Polynomial for ARIMA(2,2,0)")
+#roots are outside the unit circle, so our model is stationary
+
+#ARIMA(4,2,0)
+coeff4 <- c(1, -1.3482, 1.1001, -0.3960, 0.2519)
+roots4 <- polyroot(coeff4)
+plot.roots(NULL, roots4, main = "Roots of AR Polynomial for ARIMA(4,2,0)")
+#roots are outside the unit circle, so our model is stationary
+```
+
+
+```{r}
+#Let's fit the model ARIMA(2,1,0) and get residuals
+fit <- arima(data_ts.sqrt, order=c(2,1,0), method="ML")
+res1 <- residuals(fit)
+
+#Let's look at the residuals closely
+hist(res1, density=20, breaks=20, col="pink", prob=TRUE)
+mean <- mean(res1)
+standard_deviation <- sqrt(var(res1))
+curve(dnorm(x, mean, standard_deviation), add=TRUE )
+plot.ts(res1, main = "ARIMA(2,1,0) Residuals")
+
+#Q-Q Plot
+fitt <- lm(res1 ~ as.numeric(1:length(res1))); abline(fitt, col="purple")
+abline(h=mean(res1), col="lightblue")
+qqnorm(res1,main= "Q-Q Plot")
+qqline(res1,col="darkblue")
+#Seems to follow normal distribution.
+
+#ACF and PACF
+acf(res1, lag.max=40)
+pacf(res1, lag.max=40)
+acf(res1^2, lag.max=40)
+
+#Shapiro-Wilk Test
+shapiro.test(res1)
+#Since p-value = 0.1771, we fail to reject the null hypothesis that the residuals are normally distributed. Therefore the residuals are normally distributed.
+
+#Box-Pierce Test
+Box.test(res1, lag = 12, type = c("Box-Pierce"), fitdf = 2)
+#Since p-value < 2.2e-16, we reject the null hypothesis that the residuals are white noise. Therefore the residuals are not white noise and have some autocorrelation.
+
+#Ljung-Box Test
+Box.test(res1, lag = 12, type = c("Ljung-Box"), fitdf = 2)
+#Since p-value < 2.2e-16, we reject the null hypothesis that the residuals are independently distributed. Therefore the residuals are not independent and there is significant autocorrelation.
+
+#McLeod-Li Test
+Box.test(res1^2, lag = 12, type = c("Ljung-Box"), fitdf = 0)
+#Since p-value = 0.4597, we fail to reject the null hypothesis that the variance of the residuals is white noise. Therefore there is no significant autocorrelation in the variance.
+
+#Yule-Walker Test
+ar(res1, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#sigma^2 = 0.4928.
+
+#This model fails the Box-Pierce Test and Ljung-Box Test.
+```
+
+```{r}
+#Let's fit the model ARIMA(4,1,0) and get residuals
+fit <- arima(data_ts.sqrt, order=c(4,1,0), method="ML")
+res2 <- residuals(fit)
+
+#Let's look at the residuals closely
+hist(res2, density=20, breaks=20, col="pink", prob=TRUE)
+mean <- mean(res2)
+standard_deviation <- sqrt(var(res2))
+curve(dnorm(x, mean, standard_deviation), add=TRUE )
+plot.ts(res2, main = "ARIMA(4,1,0) Residuals")
+
+#Q-Q Plot
+fitt <- lm(res2 ~ as.numeric(1:length(res2))); abline(fitt, col="purple")
+abline(h=mean(res2), col="lightblue")
+qqnorm(res2,main= "Q-Q Plot")
+qqline(res2,col="darkblue")
+#Seems to follow normal distribution.
+
+#ACF and PACF
+acf(res2, lag.max=40)
+pacf(res2, lag.max=40)
+acf(res2^2, lag.max=40)
+
+#Shapiro-Wilk Test
+shapiro.test(res2)
+#Since p-value = 0.7159, we fail to reject the null hypothesis that the residuals are normally distributed. Therefore the residuals are normally distributed.
+
+#Box-Pierce Test
+Box.test(res2, lag = 12, type = c("Box-Pierce"), fitdf = 2)
+#Since p-value = 0.004448, we reject the null hypothesis that the residuals are white noise. Therefore the residuals are not white noise and have autocorrelation.
+
+#Ljung-Box Test
+Box.test(res2, lag = 12, type = c("Ljung-Box"), fitdf = 2)
+#Since p-value = 0.00146, we reject the null hypothesis that the residuals are independently distributed. Therefore the residuals are not independent and there is significant autocorrelation.
+
+#McLeod-Li Test
+Box.test(res2^2, lag = 12, type = c("Ljung-Box"), fitdf = 0)
+#Since p-value = 0.0727, we fail to reject the null hypothesis that the variance of the residuals is white noise. Therefore there is no significant autocorrelation in the variance.
+
+#Yule-Walker Test
+ar(res2, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#sigma^2 = 0.4669.
+
+#This model fails the Box-Pierce Test and Ljung-Box Test.
+```
+
+
+```{r}
+#Let's fit the model ARIMA (2,2,0) and get residuals
+fit <- arima(data_ts.sqrt, order=c(2,2,0), method="ML")
+res3 <- residuals(fit)
+
+#Let's look at the residuals closely
+hist(res3, density=20, breaks=20, col="pink", prob=TRUE)
+mean <- mean(res3)
+standard_deviation <- sqrt(var(res3))
+curve(dnorm(x, mean, standard_deviation), add=TRUE )
+plot.ts(res3, main = "ARIMA(2,2,0) Residuals")
+
+#Q-Q Plot
+fitt <- lm(res3 ~ as.numeric(1:length(res3))); abline(fitt, col="purple")
+abline(h=mean(res3), col="lightblue")
+qqnorm(res3,main= "Q-Q Plot")
+qqline(res3,col="darkblue")
+#Seems to follow normal distribution.
+
+#ACF and PACF
+acf(res3, lag.max=40)
+pacf(res3, lag.max=40)
+acf(res3^2, lag.max=40)
+
+#Shapiro-Wilk Test
+shapiro.test(res3)
+#Since p-value = 0.82, we fail to reject the null hypothesis that the residuals are normally distributed. Therefore the residuals are normally distributed.
+
+#Box-Pierce Test
+Box.test(res3, lag = 12, type = c("Box-Pierce"), fitdf = 2)
+#Since p-value = 0.01327 we reject the null hypothesis that the residuals are white noise. Therefore the residuals are not white noise and have some autocorrelation.
+
+#Ljung-Box Test
+Box.test(res3, lag = 12, type = c("Ljung-Box"), fitdf = 2)
+#Since p-value = 0.005008, we reject the null hypothesis that the residuals are independently distributed. Therefore the residuals are not independent and there is significant autocorrelation.
+
+#McLeod-Li Test
+Box.test(res3^2, lag = 12, type = c("Ljung-Box"), fitdf = 0)
+#Since p-value = 0.3587, we fail to reject the null hypothesis that the variance of the residuals is white noise. Therefore there is no significant autocorrelation in the variance.
+
+#Yule-Walker Test
+ar(res3, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#sigma^2 = 0.4993
+
+#This model fails the Box-Pierce Test and Ljung-Box Test.
+```
+
+```{r}
+#Let's fit the model ARIMA(4,2,0) and get residuals
+fit <- arima(data_ts.sqrt, order=c(4,2,0), method="ML")
+res4 <- residuals(fit)
+
+#Let's look at the residuals closely
+hist(res4, density=20, breaks=20, col="pink", prob=TRUE)
+mean <- mean(res4)
+standard_deviation <- sqrt(var(res4))
+curve(dnorm(x, mean, standard_deviation), add=TRUE )
+plot.ts(res4, main = "ARIMA(4,2,0) Residuals")
+
+#Q-Q Plot
+fitt <- lm(res4 ~ as.numeric(1:length(res4))); abline(fitt, col="purple")
+abline(h=mean(res4), col="lightblue")
+qqnorm(res4,main= "Q-Q Plot")
+qqline(res4,col="darkblue")
+#Seems to follow normal distribution.
+
+#ACF and PACF
+acf(res4, lag.max=40)
+pacf(res4, lag.max=40)
+acf(res4^2, lag.max=40)
+
+#Shapiro-Wilk Test
+shapiro.test(res4)
+#Since p-value = 0.2903, we fail to reject the null hypothesis that the residuals are normally distributed. Therefore the residuals are normally distributed.
+
+#Box-Pierce Test
+Box.test(res4, lag = 12, type = c("Box-Pierce"), fitdf = 2)
+#Since p-value = 0.3111, we fail to reject the null hypothesis that the residuals are white noise. Therefore the residuals are white noise and have no autocorrelation.
+
+#Ljung-Box Test
+Box.test(res4, lag = 12, type = c("Ljung-Box"), fitdf = 2)
+#Since p-value = 0.2163, we fail to reject the null hypothesis that the residuals are independently distributed. Therefore the residuals are independent and there is no significant autocorrelation.
+
+#McLeod-Li Test
+Box.test(res4^2, lag = 12, type = c("Ljung-Box"), fitdf = 0)
+#Since p-value = 0.5518, we fail to reject the null hypothesis that the variance of the residuals is white noise. Therefore there is no significant autocorrelation in the variance.
+
+#Yule-Walker Test
+ar(res4, aic = TRUE, order.max = NULL, method = c("yule-walker"))
+#sigma^2 = 0.4698
+
+#This model passes all tests.
+```
+
+
+```{r}
+#Since ARIMA(4,2,0) is the only model that checks all the diagnostic criteria and has the lowest AICc value, we are confident this is the appropriate model. 
+
+#Equation for selected model ARIMA(4,2,0)
+model <- arima(data_ts.sqrt, order=c(4,2,0), method="ML")
+summary(model)
+#Δ_2 sqrt(U_t) = (1 - 1.3482B + 1.1001B^2 - 0.3960B^3 + 0.2519B^4)Z_t
+```
+
+
+```{r}
+#Sqrt transformed data plot with 12 forecasts
+fit <- arima(sqrt(data_training_ts), order=c(4,2,0), method="ML")
+forecast(fit)
+pred.tr <- predict(fit, n.ahead = 12)
+U.tr= pred.tr$pred + 2*pred.tr$se
+L.tr= pred.tr$pred - 2*pred.tr$se
+
+#Full plot
+ts.plot(sqrt(data_testing_ts), xlim = c(2010, 2019), ylim=c(750, 1500), main = "Transformed Unemployment with Forecasts")
+lines(U.tr, col="lightblue", lty="dashed")
+lines(L.tr, col="lightblue", lty="dashed")
+points(seq(from = 2018, to = 2019, length.out=12), pred.tr$pred, col="orchid")
+
+#Zoomed plot 
+ts.plot(sqrt(data_testing_ts), xlim = c(2017, 2019), ylim=c(750, 1500), main = "Figure 5: Transformed Unemployment with Forecasts (Zoomed)")
+lines(U.tr, col="lightblue", lty="dashed")
+lines(L.tr, col="lightblue", lty="dashed")
+points(seq(from = 2018, to = 2019, length.out=12), pred.tr$pred, col="orchid")
+
+#We can clearly see that the transformed data from 2019 falls within the prediction interval even if the forecasts are not exactly on the data.
+```
+
+
+```{r}
+#Original data plot with 12 forecasts
+#Full plot
+pred.orig <- pred.tr$pred ^ 2
+U = U.tr ^ 2
+L = L.tr ^ 2
+ts.plot(data_testing_ts, xlim = c(2010, 2019), ylim=c(100000, 2500000), main = "Actual Unemployment with Forecasts")
+lines(U, col="lightblue", lty="dashed")
+lines(L, col="lightblue", lty="dashed")
+points(seq(from = 2018, to = 2019, length.out=12), pred.orig, col="orchid")
+
+#Zoomed plot
+pred.orig <- pred.tr$pred ^ 2
+U = U.tr ^ 2
+L = L.tr ^ 2
+ts.plot(data_testing_ts, xlim = c(2017, 2019), ylim=c(600000, 1200000), main = "Figure 6: Actual Unemployment with Forecasts (Zoomed)")
+lines(U, col="lightblue", lty="dashed")
+lines(L, col="lightblue", lty="dashed")
+points(seq(from = 2018, to = 2019, length.out=12), pred.orig, col="orchid")
+
+#We can clearly see that the actual data from 2019 falls within the prediction interval even if the forecasts are not exactly on the data.
+```
