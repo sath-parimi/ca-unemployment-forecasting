@@ -33,6 +33,8 @@ To reproduce this project:
 3. Make sure `unemployment.csv` and `plot.roots.R` are in the same folder
 4. Knit the RMarkdown file to generate outputs and forecasts
 
+[Click here to view the full analysis (HTML)](unemployment_forecasting.html)
+
 ## Author
 **Sathvika Parimi**  
 B.S. Financial Mathematics and Statistics, UC Santa Barbara
