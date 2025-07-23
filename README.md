@@ -33,8 +33,9 @@ To reproduce this project:
 3. Make sure `unemployment.csv` and `plot.roots.R` are in the same folder
 4. Knit the RMarkdown file to generate outputs and forecasts
 
-## View the Full Report
-[Click here to view the full report online (HTML)](https://sath-parimi.github.io/ca-unemployment-forecasting/unemployment_forecasting.html)
+## View Project Deliverables
+- [Full analysis report (HTML)](https://sath-parimi.github.io/ca-unemployment-forecasting/unemployment_forecasting.html): Knitted RMarkdown showing all code, plots, and diagnostics
+- [Written summary report (PDF)](unemployment_ts_report.pdf): A formal write-up of the approach, findings, and conclusions
 
 ## Author
 **Sathvika Parimi**  
