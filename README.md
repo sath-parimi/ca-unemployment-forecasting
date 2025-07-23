@@ -1,4 +1,4 @@
-# California Unemployment Forecasting
+# Forecasting California Unemployment
 This project uses time series analysis to model and forecast unemployment counts in California using data from the Bureau of Labor Statistics. Using ARIMA modeling techniques in R, the goal was to identify the best-fitting model and evaluate its forecasting accuracy on real-world post-training data.
 
 ## Summary
