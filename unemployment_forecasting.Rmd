@@ -1,7 +1,7 @@
 ---
 title: "CA Unemployment Forecasting"
 author: "Sathvika Parimi"
-date: "2025-07-23"
+date: "2025-03-30"
 output: html_document
 ---
 
@@ -17,8 +17,7 @@ library("MASS")
 library("MuMIn")
 library("forecast")
 source("plot.roots.R")
-data <- read.csv("/Users/sathvika20203/Downloads/Pstat 174/unemployment.csv", 
-                 header = TRUE)
+data <- read.csv("unemployment.csv", header = TRUE)
 
 ```
 
